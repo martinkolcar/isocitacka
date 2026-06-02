@@ -6,6 +6,9 @@
 <title>Čítačka izometrií</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Arial,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;padding:16px}
@@ -13,11 +16,11 @@ h1{font-size:20px;color:#38bdf8;margin-bottom:4px}
 .sub{font-size:12px;color:#64748b;margin-bottom:16px}
 .card{background:#1e293b;border-radius:12px;padding:16px;margin-bottom:12px;border:1px solid #334155}
 .btn{padding:12px 18px;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer}
-.btn-scan{background:#38bdf8;color:#000;width:100%;font-size:16px;padding:16px}
-.btn-scan:active{background:#0ea5e9}
-.btn-export{background:#4ade80;color:#000;flex:1;font-size:15px}
+.btn-scan{background:#38bdf8;color:#000;width:100%;font-size:16px;padding:16px;border-radius:10px}
+.btn-export{background:#4ade80;color:#000;flex:1;font-size:15px;padding:12px}
 .btn-clear{background:#ef4444;color:#fff;padding:12px 16px}
 .btn-undo{background:#334155;color:#94a3b8;padding:12px 16px}
+#fbStatus{padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:12px;font-weight:600}
 .last{background:#0c1a2e;border:2px solid #38bdf8;border-radius:10px;padding:14px;margin-bottom:12px;text-align:center;display:none}
 .last-val{font-size:28px;font-weight:900;color:#4ade80;letter-spacing:2px}
 .last-lbl{font-size:11px;color:#64748b;margin-top:2px}
@@ -35,31 +38,43 @@ td{padding:8px 10px;border-bottom:1px solid #1e293b}
 .dup-b{background:#fb923c;color:#000;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:5px}
 .btn-row{display:flex;gap:8px;margin-top:12px}
 
-/* KAMERA OVERLAY */
+/* OVERLAY */
 .overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#000;z-index:100;flex-direction:column}
 .overlay.show{display:flex}
 .video-wrap{flex:1;position:relative;overflow:hidden}
 #scanVideo{width:100%;height:100%;object-fit:cover}
-.scan-box{position:absolute;left:10%;right:10%;top:50%;transform:translateY(-50%);height:80px;border:3px solid #38bdf8;border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,0.5)}
+.scan-box{position:absolute;left:5%;right:5%;top:50%;transform:translateY(-50%);height:90px;border:3px solid #38bdf8;border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,0.55)}
 .scan-line{position:absolute;left:0;right:0;height:2px;background:#38bdf8;animation:scan 1.5s linear infinite}
-@keyframes scan{0%{top:0}100%{top:100%}}
-.overlay-btns{padding:16px;display:flex;gap:10px}
-.btn-capture{flex:1;background:#38bdf8;color:#000;padding:16px;font-size:16px;font-weight:700;border:none;border-radius:10px;cursor:pointer}
-.btn-close-ov{background:#334155;color:#e2e8f0;padding:16px 20px;border:none;border-radius:10px;cursor:pointer;font-size:14px;font-weight:700}
-.processing{display:none;padding:16px;text-align:center;color:#94a3b8;font-size:14px}
-.scan-result{display:none;padding:16px;background:#0c1a2e;margin:0 16px 16px;border-radius:10px;border:1px solid #334155}
-.scan-result-val{font-size:22px;font-weight:900;color:#4ade80;letter-spacing:2px;margin-bottom:10px;word-break:break-all}
-.scan-result-btns{display:flex;gap:8px}
-.btn-confirm{flex:1;background:#4ade80;color:#000;padding:12px;border:none;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer}
-.btn-retry{background:#334155;color:#e2e8f0;padding:12px 16px;border:none;border-radius:8px;font-weight:700;cursor:pointer}
-.manual-input{padding:14px;border:1px solid #334155;border-top:0;display:none}
-.manual-input input{width:100%;padding:12px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:16px;font-weight:700;letter-spacing:2px}
+@keyframes scan{0%{top:0}100%{top:78px}}
+.hint{position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:11px;color:#94a3b8}
+
+/* RESULT PANEL */
+.result-panel{padding:14px 16px;background:#0f172a;border-top:1px solid #334155;display:none}
+.result-raw{font-size:11px;color:#64748b;margin-bottom:8px;word-break:break-all}
+.result-match{font-size:22px;font-weight:900;color:#4ade80;letter-spacing:2px;margin-bottom:10px;word-break:break-all}
+.result-btns{display:flex;gap:8px;margin-bottom:10px}
+.btn-confirm{flex:1;background:#4ade80;color:#000;padding:13px;border:none;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer}
+.btn-retry{background:#334155;color:#e2e8f0;padding:13px 16px;border:none;border-radius:8px;font-weight:700;cursor:pointer}
+.top-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.top-item{background:#1e293b;border:1px solid #334155;padding:6px 10px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;color:#e2e8f0}
+.top-item:active{background:#334155}
+.top-lbl{font-size:11px;color:#64748b;margin-bottom:4px}
+.processing{padding:20px;text-align:center;color:#94a3b8;font-size:14px;display:none}
+
+.overlay-btns{padding:14px 16px;display:flex;gap:10px;background:#0f172a;border-top:1px solid #1e293b}
+.btn-capture{flex:1;background:#38bdf8;color:#000;padding:15px;font-size:16px;font-weight:700;border:none;border-radius:10px;cursor:pointer}
+.btn-close-ov{background:#334155;color:#e2e8f0;padding:15px 20px;border:none;border-radius:10px;cursor:pointer;font-weight:700}
+
+.manual-row{padding:0 16px 12px;background:#0f172a;display:none}
+.manual-row input{width:100%;padding:11px 14px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:15px;font-weight:700;letter-spacing:1px}
 </style>
 </head>
 <body>
 
 <h1>📋 Čítačka izometrií</h1>
-<p class="sub">Skenuj kamerou alebo zadaj ručne. Na konci exportuj do Excelu.</p>
+<p class="sub">Skenuj kamerou → spáruje s izometriou z databázy → exportuj Excel</p>
+
+<div id="fbStatus" style="background:#1e3a5f;color:#93c5fd">⏳ Načítavam izometrie z Firebase...</div>
 
 <div class="card">
   <div id="lastScan" class="last">
@@ -67,9 +82,9 @@ td{padding:8px 10px;border-bottom:1px solid #1e293b}
     <div class="last-lbl">posledná naskenovaná</div>
   </div>
   <button class="btn btn-scan" onclick="openScanner()">📷 Skenuj izometriu</button>
-  <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
-    <input type="text" id="manInput" placeholder="alebo zadaj ručne..." 
-      style="flex:1;padding:11px 14px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:15px;font-weight:700;letter-spacing:1px"
+  <div style="margin-top:10px;display:flex;gap:8px">
+    <input type="text" id="manInput" placeholder="alebo zadaj ručne..."
+      style="flex:1;padding:11px 14px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:14px;font-weight:700;letter-spacing:1px"
       onkeydown="if(event.key==='Enter')addManual()">
     <button class="btn" style="background:#334155;color:#e2e8f0" onclick="addManual()">Pridaj</button>
   </div>
@@ -87,7 +102,7 @@ td{padding:8px 10px;border-bottom:1px solid #1e293b}
   </div>
   <div class="btn-row">
     <button class="btn btn-export" onclick="exportExcel()">📥 Export Excel</button>
-    <button class="btn btn-undo" onclick="undoLast()">↩ Späť</button>
+    <button class="btn btn-undo" onclick="undoLast()">↩</button>
     <button class="btn btn-clear" onclick="clearAll()">🗑️</button>
   </div>
 </div>
@@ -96,40 +111,332 @@ td{padding:8px 10px;border-bottom:1px solid #1e293b}
 <div class="overlay" id="overlay">
   <div class="video-wrap">
     <video id="scanVideo" autoplay playsinline muted></video>
-    <div class="scan-box"><div class="scan-line"></div></div>
+    <div class="scan-box" id="scanBox"><div class="scan-line"></div></div>
+    <div class="hint">Namier na názov izometrie</div>
   </div>
   <div class="processing" id="processing">⏳ Čítam text...</div>
-  <div class="scan-result" id="scanResult">
-    <div class="scan-result-val" id="scanResultVal"></div>
-    <div class="scan-result-btns">
+  <div class="result-panel" id="resultPanel">
+    <div class="result-raw" id="resultRaw"></div>
+    <div class="result-match" id="resultMatch"></div>
+    <div class="result-btns">
       <button class="btn-confirm" onclick="confirmScan()">✅ Potvrď</button>
       <button class="btn-retry" onclick="retryScan()">🔄 Znova</button>
     </div>
+    <div id="topListWrap" style="display:none">
+      <div class="top-lbl">Iné možnosti:</div>
+      <div class="top-list" id="topList"></div>
+    </div>
   </div>
-  <div class="manual-input" id="manualArea">
-    <input type="text" id="manScanInput" placeholder="Uprav text..." 
+  <div class="manual-row" id="manualRow">
+    <div style="font-size:12px;color:#64748b;margin-bottom:6px">Nenašlo sa - vyber alebo zadaj:</div>
+    <input type="text" id="manScanInput" placeholder="Zadaj izometriu..."
       style="text-transform:uppercase"
       onkeydown="if(event.key==='Enter')confirmManualScan()">
   </div>
   <div class="overlay-btns">
     <button class="btn-capture" id="captureBtn" onclick="capture()">📷 Skenuj</button>
-    <button class="btn-close-ov" onclick="closeScanner()">✕ Zavrieť</button>
+    <button class="btn-close-ov" onclick="closeScanner()">✕</button>
   </div>
 </div>
 <canvas id="scanCanvas" style="display:none"></canvas>
 
 <script>
 var isos = [];
+var _isoCache = [];
 var _stream = null;
 var _worker = null;
-var _scannedText = '';
+var _scannedIso = null;
+var db = null;
 
-// ── ADD ──
+// ── FIREBASE ──
+async function initFirebase() {
+  var t = 0;
+  while (typeof firebase === 'undefined' && t < 100) {
+    await sleep(100); t++;
+  }
+  if (typeof firebase === 'undefined') {
+    setStatus('❌ Firebase SDK nenačítaný', '#fee2e2', '#991b1b');
+    return;
+  }
+  try {
+    firebase.initializeApp({
+      apiKey: "AIzaSyDYFCovgo873FIrX4_pEdG1LpDKevxxEU4",
+      authDomain: "weldpro-66d2a-8336e.firebaseapp.com",
+      projectId: "weldpro-66d2a-8336e",
+      storageBucket: "weldpro-66d2a-8336e.firebasestorage.app",
+      messagingSenderId: "1062303461642",
+      appId: "1:1062303461642:web:e90ff234366c88a5eccaf3"
+    });
+    db = firebase.firestore();
+    await firebase.auth().signInAnonymously();
+    setStatus('⏳ Načítavam izometrie...', '#1e3a5f', '#93c5fd');
+    await loadIsoCache();
+  } catch(e) {
+    setStatus('❌ Firebase: ' + e.message, '#fee2e2', '#991b1b');
+  }
+}
+
+async function loadIsoCache() {
+  try {
+    // Skus weldbook_meta (nova architektura)
+    var parts = ['SUL','LIG','DRY','FLA','LHT'];
+    var allIsos = [];
+    var fromMeta = false;
+    for (var pi = 0; pi < parts.length; pi++) {
+      var meta = await db.collection('weldbook_meta').doc(parts[pi]).get();
+      if (meta.exists && meta.data().isometrics) {
+        allIsos = allIsos.concat(meta.data().isometrics);
+        fromMeta = true;
+      }
+    }
+    if (fromMeta && allIsos.length > 0) {
+      _isoCache = allIsos.filter(function(v,i,a){return a.indexOf(v)===i;}).sort();
+      setStatus('✅ Načítaných ' + _isoCache.length + ' izometrií', '#0c2a1a', '#4ade80');
+      return;
+    }
+    // Fallback - stare chunky (nacitaj len isometric pole)
+    setStatus('⏳ Načítavam zo starých dát...', '#1e3a5f', '#93c5fd');
+    var seen = {};
+    for (var pi2 = 0; pi2 < parts.length; pi2++) {
+      var docId = parts[pi2] + '_main';
+      var mainDoc = await db.collection('weldbook').doc(docId).get();
+      if (!mainDoc.exists) continue;
+      var m = mainDoc.data();
+      var cps = [];
+      for (var ci = 0; ci < (m.chunks||1); ci++)
+        cps.push(db.collection('weldbook').doc(docId).collection('data').doc('c'+ci).get());
+      var cds = await Promise.all(cps);
+      var json = cds.filter(function(c){return c.exists;}).map(function(c){return c.data().d||'';}).join('');
+      var rows;
+      try { rows = JSON.parse(json); } catch(e) {
+        var fixed = json.trimEnd().replace(/,\s*$/,'');
+        if (!fixed.endsWith(']')) fixed += ']';
+        rows = JSON.parse(fixed);
+      }
+      rows.forEach(function(r){
+        var v = (r.isometric||'').trim();
+        if (v && !seen[v]) { seen[v]=true; _isoCache.push(v); }
+      });
+    }
+    _isoCache.sort();
+    setStatus('✅ Načítaných ' + _isoCache.length + ' izometrií', '#0c2a1a', '#4ade80');
+  } catch(e) {
+    setStatus('⚠️ Izometrie nenačítané: ' + e.message, '#2a1a0a', '#fb923c');
+  }
+}
+
+function setStatus(msg, bg, color) {
+  var el = document.getElementById('fbStatus');
+  el.textContent = msg;
+  el.style.background = bg;
+  el.style.color = color || '#e2e8f0';
+}
+
+initFirebase();
+
+// ── MATCHING (rovnaky ako mobile.html) ──
+function findIsoInText(text) {
+  if (!_isoCache.length) return { best: null, top: [] };
+
+  function fix(s) {
+    return s.toUpperCase()
+      .replace(/O/g,'0').replace(/[lI]/g,'1').replace(/S/g,'5')
+      .replace(/Z/g,'2').replace(/B/g,'8').replace(/[^A-Z0-9]/g,'');
+  }
+
+  var rawUp = text.toUpperCase();
+  var rawClean = rawUp.replace(/[^A-Z0-9\-]/g,' ').replace(/\s+/g,' ').trim();
+  var rawNoSep = rawUp.replace(/[^A-Z0-9]/g,'');
+  var rawFixed = fix(rawNoSep);
+  var tokens = (rawUp.match(/[A-Z0-9][A-Z0-9\-]{3,}/g) || []);
+
+  var scored = _isoCache.map(function(iso) {
+    var ic = iso.toUpperCase();
+    var icNoSep = ic.replace(/[^A-Z0-9]/g,'');
+    var icFixed = fix(icNoSep);
+    var segs = ic.split(/[^A-Z0-9]+/).filter(function(s){ return s.length > 0; });
+    var score = 0;
+
+    if (rawNoSep.includes(icNoSep) || rawFixed.includes(icFixed)) return { iso:iso, score:2000 };
+
+    var ocrParts = rawClean.split(' ');
+    for (var oi = 0; oi < ocrParts.length; oi++) {
+      var op = ocrParts[oi].replace(/[^A-Z0-9]/g,'');
+      if (op.length >= 4) {
+        if (icNoSep.includes(op) || fix(icNoSep).includes(fix(op))) {
+          score += op.length * 30;
+        }
+      }
+    }
+
+    var segHits = 0;
+    for (var si = 0; si < segs.length; si++) {
+      var seg = segs[si];
+      if (seg.length < 2) continue;
+      if (rawNoSep.includes(seg) || rawFixed.includes(fix(seg))) {
+        segHits += seg.length;
+      }
+    }
+    score += segHits * 15;
+
+    for (var ti = 0; ti < tokens.length; ti++) {
+      var tok = tokens[ti].replace(/[^A-Z0-9]/g,'');
+      if (tok.length < 3) continue;
+      if (icNoSep.includes(tok) || fix(icNoSep).includes(fix(tok))) {
+        score += tok.length * 20;
+      }
+    }
+
+    return { iso:iso, score:score };
+  });
+
+  scored.sort(function(a,b){ return b.score - a.score; });
+  var top = scored.filter(function(x){ return x.score >= 60; }).slice(0,8);
+  var best = null;
+  if (top.length > 0) {
+    if (top[0].score >= 400) best = top[0].iso;
+    else if (top.length >= 2 && top[0].score >= top[1].score * 2 && top[0].score >= 150) best = top[0].iso;
+  }
+  return { best:best, top:top };
+}
+
+// ── SCANNER ──
+async function openScanner() {
+  var ov = document.getElementById('overlay');
+  ov.classList.add('show');
+  document.getElementById('resultPanel').style.display = 'none';
+  document.getElementById('processing').style.display = 'none';
+  document.getElementById('manualRow').style.display = 'none';
+  document.getElementById('captureBtn').style.display = 'block';
+  document.getElementById('captureBtn').textContent = '📷 Skenuj';
+  try {
+    _stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: {ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }
+    });
+    document.getElementById('scanVideo').srcObject = _stream;
+    // Pre-init OCR worker
+    if (!_worker) {
+      _worker = await Tesseract.createWorker('eng');
+    }
+  } catch(e) {
+    alert('Kamera: ' + e.message);
+    closeScanner();
+  }
+}
+
+function closeScanner() {
+  if (_stream) { _stream.getTracks().forEach(function(t){t.stop();}); _stream = null; }
+  document.getElementById('scanVideo').srcObject = null;
+  document.getElementById('overlay').classList.remove('show');
+}
+
+async function capture() {
+  var video = document.getElementById('scanVideo');
+  var box = document.getElementById('scanBox');
+  if (!video.videoWidth) { alert('Kamera nie je pripravená'); return; }
+
+  document.getElementById('captureBtn').textContent = '⏳';
+  document.getElementById('processing').style.display = 'block';
+  document.getElementById('resultPanel').style.display = 'none';
+  document.getElementById('manualRow').style.display = 'none';
+
+  var vRect = video.getBoundingClientRect();
+  var bRect = box.getBoundingClientRect();
+  var vw = video.videoWidth, vh = video.videoHeight;
+  var scale = Math.min(vRect.width/vw, vRect.height/vh);
+  var rendW = vw*scale, rendH = vh*scale;
+  var ox = (vRect.width-rendW)/2, oy = (vRect.height-rendH)/2;
+  var sx = Math.max(0, (bRect.left - vRect.left - ox) / scale);
+  var sy = Math.max(0, (bRect.top  - vRect.top  - oy) / scale);
+  var sw = Math.min(vw-sx, bRect.width/scale);
+  var sh = Math.min(vh-sy, bRect.height/scale);
+
+  var canvas = document.getElementById('scanCanvas');
+  canvas.width = sw * 2; canvas.height = sh * 2;
+  var ctx = canvas.getContext('2d');
+  ctx.filter = 'contrast(1.8) brightness(1.15) grayscale(1)';
+  ctx.scale(2,2);
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+
+  try {
+    var result = await _worker.recognize(canvas);
+    var rawText = (result.data.text || '').trim();
+    var match = findIsoInText(rawText);
+
+    document.getElementById('processing').style.display = 'none';
+    document.getElementById('captureBtn').style.display = 'none';
+
+    document.getElementById('resultRaw').textContent = 'OCR: ' + rawText.replace(/\n/g,' ').substring(0,80);
+
+    if (match.best) {
+      _scannedIso = match.best;
+      document.getElementById('resultMatch').textContent = match.best;
+      // Top alternavy
+      var others = match.top.filter(function(x){return x.iso !== match.best;}).slice(0,5);
+      if (others.length) {
+        document.getElementById('topList').innerHTML = others.map(function(x){
+          return '<div class="top-item" onclick="selectTop(\''+x.iso+'\')">'+x.iso+'</div>';
+        }).join('');
+        document.getElementById('topListWrap').style.display = 'block';
+      } else {
+        document.getElementById('topListWrap').style.display = 'none';
+      }
+      document.getElementById('resultPanel').style.display = 'block';
+    } else {
+      // Nenaslo - ukaz top moznosti alebo manual
+      if (match.top.length) {
+        _scannedIso = match.top[0].iso;
+        document.getElementById('resultMatch').textContent = match.top[0].iso + ' ?';
+        document.getElementById('topList').innerHTML = match.top.map(function(x){
+          return '<div class="top-item" onclick="selectTop(\''+x.iso+'\')">'+x.iso+'</div>';
+        }).join('');
+        document.getElementById('topListWrap').style.display = 'block';
+        document.getElementById('resultPanel').style.display = 'block';
+      } else {
+        document.getElementById('manualRow').style.display = 'block';
+        document.getElementById('manScanInput').value = rawText.replace(/\n/g,' ').trim().toUpperCase();
+        document.getElementById('manScanInput').focus();
+      }
+    }
+  } catch(e) {
+    document.getElementById('processing').style.display = 'none';
+    document.getElementById('captureBtn').style.display = 'block';
+    document.getElementById('captureBtn').textContent = '📷 Skenuj';
+    alert('OCR chyba: ' + e.message);
+  }
+}
+
+function selectTop(iso) {
+  _scannedIso = iso;
+  document.getElementById('resultMatch').textContent = iso;
+  document.getElementById('topListWrap').style.display = 'none';
+}
+
+function confirmScan() {
+  if (_scannedIso) {
+    addIso(_scannedIso);
+    retryScan();
+  }
+}
+
+function confirmManualScan() {
+  var val = document.getElementById('manScanInput').value.trim().toUpperCase();
+  if (val) { addIso(val); retryScan(); }
+}
+
+function retryScan() {
+  _scannedIso = null;
+  document.getElementById('resultPanel').style.display = 'none';
+  document.getElementById('manualRow').style.display = 'none';
+  document.getElementById('captureBtn').style.display = 'block';
+  document.getElementById('captureBtn').textContent = '📷 Skenuj';
+}
+
+// ── DATA ──
 function addIso(val) {
-  val = val.trim().toUpperCase();
+  val = (val||'').trim().toUpperCase();
   if (!val) return;
-  var now = new Date().toLocaleTimeString('sk-SK');
-  isos.push({val:val, time:now});
+  isos.push({val:val, time:new Date().toLocaleTimeString('sk-SK')});
   document.getElementById('lastScan').style.display = 'block';
   document.getElementById('lastVal').textContent = val;
   render();
@@ -138,8 +445,7 @@ function addIso(val) {
 function addManual() {
   var inp = document.getElementById('manInput');
   addIso(inp.value);
-  inp.value = '';
-  inp.focus();
+  inp.value = ''; inp.focus();
 }
 
 function undoLast() {
@@ -158,10 +464,9 @@ function clearAll() {
   render();
 }
 
-// ── RENDER ──
 function render() {
   var counts = {};
-  isos.forEach(function(r){ counts[r.val] = (counts[r.val]||0)+1; });
+  isos.forEach(function(r){ counts[r.val]=(counts[r.val]||0)+1; });
   var uniq = Object.keys(counts).length;
   document.getElementById('sCelkom').textContent = isos.length;
   document.getElementById('sUniq').textContent = uniq;
@@ -179,119 +484,6 @@ function render() {
     tbody.appendChild(tr);
   }
   document.querySelector('.table-wrap').scrollTop = 0;
-}
-
-// ── SCANNER ──
-async function openScanner() {
-  document.getElementById('overlay').classList.add('show');
-  document.getElementById('scanResult').style.display = 'none';
-  document.getElementById('processing').style.display = 'none';
-  document.getElementById('manualArea').style.display = 'none';
-  document.getElementById('captureBtn').style.display = 'block';
-  document.getElementById('captureBtn').textContent = '📷 Skenuj';
-  try {
-    _stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: {ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }
-    });
-    document.getElementById('scanVideo').srcObject = _stream;
-  } catch(e) {
-    alert('Kamera: ' + e.message);
-    closeScanner();
-  }
-}
-
-function closeScanner() {
-  if (_stream) { _stream.getTracks().forEach(function(t){t.stop();}); _stream = null; }
-  document.getElementById('scanVideo').srcObject = null;
-  document.getElementById('overlay').classList.remove('show');
-}
-
-async function capture() {
-  var video = document.getElementById('scanVideo');
-  var box = document.querySelector('.scan-box');
-  if (!video.videoWidth) { alert('Kamera nie je pripravená'); return; }
-
-  document.getElementById('captureBtn').textContent = '⏳';
-  document.getElementById('processing').style.display = 'block';
-  document.getElementById('scanResult').style.display = 'none';
-
-  // Crop na scan box
-  var vRect = video.getBoundingClientRect();
-  var bRect = box.getBoundingClientRect();
-  var vw = video.videoWidth, vh = video.videoHeight;
-  var scale = Math.min(vRect.width/vw, vRect.height/vh);
-  var rendW = vw*scale, rendH = vh*scale;
-  var ox = (vRect.width-rendW)/2, oy = (vRect.height-rendH)/2;
-  var sx = Math.max(0, (bRect.left - vRect.left - ox) / scale);
-  var sy = Math.max(0, (bRect.top  - vRect.top  - oy) / scale);
-  var sw = Math.min(vw-sx, bRect.width/scale);
-  var sh = Math.min(vh-sy, bRect.height/scale);
-
-  var canvas = document.getElementById('scanCanvas');
-  canvas.width = sw * 2; canvas.height = sh * 2;
-  var ctx = canvas.getContext('2d');
-  ctx.scale(2,2);
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-
-  try {
-    if (!_worker) {
-      _worker = await Tesseract.createWorker('eng');
-      await _worker.setParameters({
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/ '
-      });
-    }
-    var result = await _worker.recognize(canvas);
-    var raw = result.data.text.trim().toUpperCase()
-      .replace(/[^A-Z0-9\-\/]/g, ' ')
-      .replace(/\s+/g, ' ').trim();
-    _scannedText = raw;
-
-    document.getElementById('processing').style.display = 'none';
-    document.getElementById('captureBtn').style.display = 'none';
-
-    if (raw) {
-      document.getElementById('scanResultVal').textContent = raw;
-      document.getElementById('scanResult').style.display = 'block';
-    } else {
-      // Nič nenašlo - ukáž manuálny input
-      document.getElementById('manualArea').style.display = 'block';
-      document.getElementById('manScanInput').value = '';
-      document.getElementById('manScanInput').focus();
-    }
-  } catch(e) {
-    document.getElementById('processing').style.display = 'none';
-    alert('OCR chyba: ' + e.message);
-    document.getElementById('captureBtn').textContent = '📷 Skenuj';
-  }
-}
-
-function confirmScan() {
-  if (_scannedText) {
-    addIso(_scannedText);
-    // Reset pre dalsi sken
-    document.getElementById('scanResult').style.display = 'none';
-    document.getElementById('captureBtn').style.display = 'block';
-    document.getElementById('captureBtn').textContent = '📷 Skenuj';
-    _scannedText = '';
-  }
-}
-
-function confirmManualScan() {
-  var val = document.getElementById('manScanInput').value.trim();
-  if (val) {
-    addIso(val);
-    document.getElementById('manualArea').style.display = 'none';
-    document.getElementById('captureBtn').style.display = 'block';
-    document.getElementById('captureBtn').textContent = '📷 Skenuj';
-  }
-}
-
-function retryScan() {
-  _scannedText = '';
-  document.getElementById('scanResult').style.display = 'none';
-  document.getElementById('manualArea').style.display = 'none';
-  document.getElementById('captureBtn').style.display = 'block';
-  document.getElementById('captureBtn').textContent = '📷 Skenuj';
 }
 
 // ── EXPORT ──
@@ -313,6 +505,8 @@ function exportExcel() {
   XLSX.utils.book_append_sheet(wb, ws, 'Izometrie');
   XLSX.writeFile(wb, 'izometrie_' + new Date().toISOString().slice(0,10) + '.xlsx');
 }
+
+function sleep(ms){ return new Promise(function(r){setTimeout(r,ms);}); }
 </script>
 </body>
 </html>
