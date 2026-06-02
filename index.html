@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Čítačka izometrií</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;padding:16px}
+h1{font-size:20px;color:#38bdf8;margin-bottom:4px}
+.sub{font-size:12px;color:#64748b;margin-bottom:16px}
+.card{background:#1e293b;border-radius:12px;padding:16px;margin-bottom:12px;border:1px solid #334155}
+.btn{padding:12px 18px;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer}
+.btn-scan{background:#38bdf8;color:#000;width:100%;font-size:16px;padding:16px}
+.btn-scan:active{background:#0ea5e9}
+.btn-export{background:#4ade80;color:#000;flex:1;font-size:15px}
+.btn-clear{background:#ef4444;color:#fff;padding:12px 16px}
+.btn-undo{background:#334155;color:#94a3b8;padding:12px 16px}
+.last{background:#0c1a2e;border:2px solid #38bdf8;border-radius:10px;padding:14px;margin-bottom:12px;text-align:center;display:none}
+.last-val{font-size:28px;font-weight:900;color:#4ade80;letter-spacing:2px}
+.last-lbl{font-size:11px;color:#64748b;margin-top:2px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.stat{background:#0f172a;border-radius:8px;padding:10px;text-align:center}
+.stat b{display:block;font-size:22px;color:#38bdf8}
+.stat small{font-size:11px;color:#64748b}
+.table-wrap{max-height:300px;overflow-y:auto;border-radius:8px;border:1px solid #334155}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:#0f172a;color:#38bdf8;padding:8px 10px;text-align:left;position:sticky;top:0}
+td{padding:8px 10px;border-bottom:1px solid #1e293b}
+.iso-v{font-weight:700;font-size:14px;letter-spacing:1px}
+.dup td{background:#1a1000}
+.dup .iso-v{color:#fb923c}
+.dup-b{background:#fb923c;color:#000;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:5px}
+.btn-row{display:flex;gap:8px;margin-top:12px}
+
+/* KAMERA OVERLAY */
+.overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#000;z-index:100;flex-direction:column}
+.overlay.show{display:flex}
+.video-wrap{flex:1;position:relative;overflow:hidden}
+#scanVideo{width:100%;height:100%;object-fit:cover}
+.scan-box{position:absolute;left:10%;right:10%;top:50%;transform:translateY(-50%);height:80px;border:3px solid #38bdf8;border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,0.5)}
+.scan-line{position:absolute;left:0;right:0;height:2px;background:#38bdf8;animation:scan 1.5s linear infinite}
+@keyframes scan{0%{top:0}100%{top:100%}}
+.overlay-btns{padding:16px;display:flex;gap:10px}
+.btn-capture{flex:1;background:#38bdf8;color:#000;padding:16px;font-size:16px;font-weight:700;border:none;border-radius:10px;cursor:pointer}
+.btn-close-ov{background:#334155;color:#e2e8f0;padding:16px 20px;border:none;border-radius:10px;cursor:pointer;font-size:14px;font-weight:700}
+.processing{display:none;padding:16px;text-align:center;color:#94a3b8;font-size:14px}
+.scan-result{display:none;padding:16px;background:#0c1a2e;margin:0 16px 16px;border-radius:10px;border:1px solid #334155}
+.scan-result-val{font-size:22px;font-weight:900;color:#4ade80;letter-spacing:2px;margin-bottom:10px;word-break:break-all}
+.scan-result-btns{display:flex;gap:8px}
+.btn-confirm{flex:1;background:#4ade80;color:#000;padding:12px;border:none;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer}
+.btn-retry{background:#334155;color:#e2e8f0;padding:12px 16px;border:none;border-radius:8px;font-weight:700;cursor:pointer}
+.manual-input{padding:14px;border:1px solid #334155;border-top:0;display:none}
+.manual-input input{width:100%;padding:12px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:16px;font-weight:700;letter-spacing:2px}
+</style>
+</head>
+<body>
+
+<h1>📋 Čítačka izometrií</h1>
+<p class="sub">Skenuj kamerou alebo zadaj ručne. Na konci exportuj do Excelu.</p>
+
+<div class="card">
+  <div id="lastScan" class="last">
+    <div class="last-val" id="lastVal"></div>
+    <div class="last-lbl">posledná naskenovaná</div>
+  </div>
+  <button class="btn btn-scan" onclick="openScanner()">📷 Skenuj izometriu</button>
+  <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+    <input type="text" id="manInput" placeholder="alebo zadaj ručne..." 
+      style="flex:1;padding:11px 14px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:15px;font-weight:700;letter-spacing:1px"
+      onkeydown="if(event.key==='Enter')addManual()">
+    <button class="btn" style="background:#334155;color:#e2e8f0" onclick="addManual()">Pridaj</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="stats">
+    <div class="stat"><b id="sCelkom">0</b><small>Celkom</small></div>
+    <div class="stat"><b id="sUniq">0</b><small>Unikátnych</small></div>
+    <div class="stat"><b id="sDup">0</b><small>Duplikátov</small></div>
+  </div>
+  <div class="table-wrap">
+    <table><thead><tr><th>#</th><th>Izometria</th><th>Čas</th></tr></thead>
+    <tbody id="tbody"></tbody></table>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-export" onclick="exportExcel()">📥 Export Excel</button>
+    <button class="btn btn-undo" onclick="undoLast()">↩ Späť</button>
+    <button class="btn btn-clear" onclick="clearAll()">🗑️</button>
+  </div>
+</div>
+
+<!-- KAMERA OVERLAY -->
+<div class="overlay" id="overlay">
+  <div class="video-wrap">
+    <video id="scanVideo" autoplay playsinline muted></video>
+    <div class="scan-box"><div class="scan-line"></div></div>
+  </div>
+  <div class="processing" id="processing">⏳ Čítam text...</div>
+  <div class="scan-result" id="scanResult">
+    <div class="scan-result-val" id="scanResultVal"></div>
+    <div class="scan-result-btns">
+      <button class="btn-confirm" onclick="confirmScan()">✅ Potvrď</button>
+      <button class="btn-retry" onclick="retryScan()">🔄 Znova</button>
+    </div>
+  </div>
+  <div class="manual-input" id="manualArea">
+    <input type="text" id="manScanInput" placeholder="Uprav text..." 
+      style="text-transform:uppercase"
+      onkeydown="if(event.key==='Enter')confirmManualScan()">
+  </div>
+  <div class="overlay-btns">
+    <button class="btn-capture" id="captureBtn" onclick="capture()">📷 Skenuj</button>
+    <button class="btn-close-ov" onclick="closeScanner()">✕ Zavrieť</button>
+  </div>
+</div>
+<canvas id="scanCanvas" style="display:none"></canvas>
+
+<script>
+var isos = [];
+var _stream = null;
+var _worker = null;
+var _scannedText = '';
+
+// ── ADD ──
+function addIso(val) {
+  val = val.trim().toUpperCase();
+  if (!val) return;
+  var now = new Date().toLocaleTimeString('sk-SK');
+  isos.push({val:val, time:now});
+  document.getElementById('lastScan').style.display = 'block';
+  document.getElementById('lastVal').textContent = val;
+  render();
+}
+
+function addManual() {
+  var inp = document.getElementById('manInput');
+  addIso(inp.value);
+  inp.value = '';
+  inp.focus();
+}
+
+function undoLast() {
+  if (!isos.length) return;
+  isos.pop();
+  if (isos.length) document.getElementById('lastVal').textContent = isos[isos.length-1].val;
+  else document.getElementById('lastScan').style.display = 'none';
+  render();
+}
+
+function clearAll() {
+  if (!isos.length) return;
+  if (!confirm('Vymazať všetkých ' + isos.length + ' izometrií?')) return;
+  isos = [];
+  document.getElementById('lastScan').style.display = 'none';
+  render();
+}
+
+// ── RENDER ──
+function render() {
+  var counts = {};
+  isos.forEach(function(r){ counts[r.val] = (counts[r.val]||0)+1; });
+  var uniq = Object.keys(counts).length;
+  document.getElementById('sCelkom').textContent = isos.length;
+  document.getElementById('sUniq').textContent = uniq;
+  document.getElementById('sDup').textContent = isos.length - uniq;
+  var tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  for (var i = isos.length-1; i >= 0; i--) {
+    var r = isos[i];
+    var dup = counts[r.val] > 1;
+    var tr = document.createElement('tr');
+    if (dup) tr.className = 'dup';
+    tr.innerHTML = '<td style="color:#475569;font-size:11px">'+(i+1)+'</td>'
+      +'<td class="iso-v">'+r.val+(dup?'<span class="dup-b">DUP</span>':'')+'</td>'
+      +'<td style="color:#475569;font-size:11px">'+r.time+'</td>';
+    tbody.appendChild(tr);
+  }
+  document.querySelector('.table-wrap').scrollTop = 0;
+}
+
+// ── SCANNER ──
+async function openScanner() {
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('scanResult').style.display = 'none';
+  document.getElementById('processing').style.display = 'none';
+  document.getElementById('manualArea').style.display = 'none';
+  document.getElementById('captureBtn').style.display = 'block';
+  document.getElementById('captureBtn').textContent = '📷 Skenuj';
+  try {
+    _stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: {ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }
+    });
+    document.getElementById('scanVideo').srcObject = _stream;
+  } catch(e) {
+    alert('Kamera: ' + e.message);
+    closeScanner();
+  }
+}
+
+function closeScanner() {
+  if (_stream) { _stream.getTracks().forEach(function(t){t.stop();}); _stream = null; }
+  document.getElementById('scanVideo').srcObject = null;
+  document.getElementById('overlay').classList.remove('show');
+}
+
+async function capture() {
+  var video = document.getElementById('scanVideo');
+  var box = document.querySelector('.scan-box');
+  if (!video.videoWidth) { alert('Kamera nie je pripravená'); return; }
+
+  document.getElementById('captureBtn').textContent = '⏳';
+  document.getElementById('processing').style.display = 'block';
+  document.getElementById('scanResult').style.display = 'none';
+
+  // Crop na scan box
+  var vRect = video.getBoundingClientRect();
+  var bRect = box.getBoundingClientRect();
+  var vw = video.videoWidth, vh = video.videoHeight;
+  var scale = Math.min(vRect.width/vw, vRect.height/vh);
+  var rendW = vw*scale, rendH = vh*scale;
+  var ox = (vRect.width-rendW)/2, oy = (vRect.height-rendH)/2;
+  var sx = Math.max(0, (bRect.left - vRect.left - ox) / scale);
+  var sy = Math.max(0, (bRect.top  - vRect.top  - oy) / scale);
+  var sw = Math.min(vw-sx, bRect.width/scale);
+  var sh = Math.min(vh-sy, bRect.height/scale);
+
+  var canvas = document.getElementById('scanCanvas');
+  canvas.width = sw * 2; canvas.height = sh * 2;
+  var ctx = canvas.getContext('2d');
+  ctx.scale(2,2);
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+
+  try {
+    if (!_worker) {
+      _worker = await Tesseract.createWorker('eng');
+      await _worker.setParameters({
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/ '
+      });
+    }
+    var result = await _worker.recognize(canvas);
+    var raw = result.data.text.trim().toUpperCase()
+      .replace(/[^A-Z0-9\-\/]/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+    _scannedText = raw;
+
+    document.getElementById('processing').style.display = 'none';
+    document.getElementById('captureBtn').style.display = 'none';
+
+    if (raw) {
+      document.getElementById('scanResultVal').textContent = raw;
+      document.getElementById('scanResult').style.display = 'block';
+    } else {
+      // Nič nenašlo - ukáž manuálny input
+      document.getElementById('manualArea').style.display = 'block';
+      document.getElementById('manScanInput').value = '';
+      document.getElementById('manScanInput').focus();
+    }
+  } catch(e) {
+    document.getElementById('processing').style.display = 'none';
+    alert('OCR chyba: ' + e.message);
+    document.getElementById('captureBtn').textContent = '📷 Skenuj';
+  }
+}
+
+function confirmScan() {
+  if (_scannedText) {
+    addIso(_scannedText);
+    // Reset pre dalsi sken
+    document.getElementById('scanResult').style.display = 'none';
+    document.getElementById('captureBtn').style.display = 'block';
+    document.getElementById('captureBtn').textContent = '📷 Skenuj';
+    _scannedText = '';
+  }
+}
+
+function confirmManualScan() {
+  var val = document.getElementById('manScanInput').value.trim();
+  if (val) {
+    addIso(val);
+    document.getElementById('manualArea').style.display = 'none';
+    document.getElementById('captureBtn').style.display = 'block';
+    document.getElementById('captureBtn').textContent = '📷 Skenuj';
+  }
+}
+
+function retryScan() {
+  _scannedText = '';
+  document.getElementById('scanResult').style.display = 'none';
+  document.getElementById('manualArea').style.display = 'none';
+  document.getElementById('captureBtn').style.display = 'block';
+  document.getElementById('captureBtn').textContent = '📷 Skenuj';
+}
+
+// ── EXPORT ──
+function exportExcel() {
+  if (!isos.length) { alert('Žiadne izometrie!'); return; }
+  var counts = {};
+  isos.forEach(function(r){ counts[r.val]=(counts[r.val]||0)+1; });
+  var data = [['#','Izometria','Čas','Počet výskytov','Duplicitná']];
+  isos.forEach(function(r,i){
+    data.push([i+1, r.val, r.time, counts[r.val], counts[r.val]>1?'ÁNO':'']);
+  });
+  data.push([]);
+  data.push(['Celkom:', isos.length]);
+  data.push(['Unikátnych:', Object.keys(counts).length]);
+  data.push(['Duplicitných:', isos.length - Object.keys(counts).length]);
+  var ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{wch:5},{wch:30},{wch:12},{wch:15},{wch:12}];
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Izometrie');
+  XLSX.writeFile(wb, 'izometrie_' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
+</script>
+</body>
+</html>
